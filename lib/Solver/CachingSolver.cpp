@@ -20,6 +20,9 @@
 #include <unordered_map>
 #include <utility>
 
+#include "klee/Support/Debug.h"
+#include "klee/Support/ErrorHandling.h"
+
 using namespace klee;
 
 class CachingSolver : public SolverImpl {
@@ -191,7 +194,9 @@ bool CachingSolver::computeValidity(const Query& query,
   }
 
   ++stats::queryCacheMisses;
-  
+
+  klee_warning("Caching:%s:%d]", __func__, __LINE__);
+  query.dump();
   if (!solver->impl->computeValidity(query, result))
     return false;
 
@@ -204,6 +209,7 @@ bool CachingSolver::computeValidity(const Query& query,
     cachedResult = IncompleteSolver::TrueOrFalse; break;
   }
   
+  klee_warning("Caching:%s:%d] result : %d", __func__, __LINE__, cachedResult);
   cacheInsert(query, cachedResult);
   return true;
 }
@@ -223,6 +229,8 @@ bool CachingSolver::computeTruth(const Query& query,
 
   ++stats::queryCacheMisses;
   
+  klee_warning("Caching:%s:%d]", __func__, __LINE__);
+  query.dump();
   // cache miss: query solver
   if (!solver->impl->computeTruth(query, isValid))
     return false;
@@ -237,7 +245,8 @@ bool CachingSolver::computeTruth(const Query& query,
   } else {
     cachedResult = IncompleteSolver::MayBeFalse;
   }
-  
+
+  klee_warning("Caching:%s:%d] result : %d", __func__, __LINE__, cachedResult);
   cacheInsert(query, cachedResult);
   return true;
 }

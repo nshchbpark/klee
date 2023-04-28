@@ -1035,10 +1035,13 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
   if (isSeeding)
     timeout *= static_cast<unsigned>(it->second.size());
   solver->setTimeout(timeout);
+  klee_warning("fork:%s:%d]", __func__, __LINE__);
+  condition->dump();
   bool success = solver->evaluate(current.constraints, condition, res,
                                   current.queryMetaData);
   solver->setTimeout(time::Span());
   if (!success) {
+    klee_warning("fork:%s:%d]", __func__, __LINE__);
     current.pc = current.prevPC;
     terminateStateOnSolverError(current, "Query timed out (fork).");
     return StatePair(nullptr, nullptr);
@@ -1049,7 +1052,6 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
       assert(replayPosition<replayPath->size() &&
              "ran out of branches in replay path mode");
       bool branch = (*replayPath)[replayPosition++];
-      
       if (res==Solver::True) {
         assert(branch && "hit invalid branch in replay path mode");
       } else if (res==Solver::False) {
@@ -1066,7 +1068,7 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
       }
     } else if (res==Solver::Unknown) {
       assert(!replayKTest && "in replay mode, only one branch can be true.");
-      
+      klee_warning("fork:%s:%d] Solver::Unknown ", __func__, __LINE__);
       if (!branchingPermitted(current)) {
         TimerStatIncrementer timer(stats::forkTime);
         if (theRNG.getBool()) {
@@ -1086,6 +1088,7 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
   if (isSeeding && 
       (current.forkDisabled || OnlyReplaySeeds) && 
       res == Solver::Unknown) {
+    klee_warning("fork:%s:%d]", __func__, __LINE__);
     bool trueSeed=false, falseSeed=false;
     // Is seed extension still ok here?
     for (std::vector<SeedInfo>::iterator siit = it->second.begin(), 
@@ -1121,6 +1124,8 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
   // hint to just use the single constraint instead of all the binary
   // search ones. If that makes sense.
   if (res==Solver::True) {
+    klee_warning("%s:%d] true", __func__, __LINE__);
+
     if (!isInternal) {
       if (pathWriter) {
         current.pathOS << "1";
@@ -1129,6 +1134,8 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
 
     return StatePair(&current, nullptr);
   } else if (res==Solver::False) {
+    klee_warning("%s:%d] false", __func__, __LINE__);
+
     if (!isInternal) {
       if (pathWriter) {
         current.pathOS << "0";
@@ -1137,6 +1144,7 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
 
     return StatePair(nullptr, &current);
   } else {
+    klee_warning("%s:%d] unknown", __func__, __LINE__);
     TimerStatIncrementer timer(stats::forkTime);
     ExecutionState *falseState, *trueState = &current;
 
@@ -1200,6 +1208,11 @@ Executor::StatePair Executor::fork(ExecutionState &current, ref<Expr> condition,
       }
     }
 
+    std::string TmpStr;
+    llvm::raw_string_ostream osm(TmpStr);
+    osm << "trueState : "; condition->print(osm);
+    osm << "falseState : "; Expr::createIsZero(condition)->print(osm);
+    klee_warning("%s:%d] %s", __func__, __LINE__, osm.str().c_str());
     addConstraint(*trueState, condition);
     addConstraint(*falseState, Expr::createIsZero(condition));
 
@@ -2192,6 +2205,8 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
   }
   case Instruction::Br: {
     BranchInst *bi = cast<BranchInst>(i);
+    klee_warning("BR] :"); i->dump();
+
     if (bi->isUnconditional()) {
       transferToBasicBlock(bi->getSuccessor(0), bi->getParent(), state);
     } else {
@@ -2657,12 +2672,21 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
     CmpInst *ci = cast<CmpInst>(i);
     ICmpInst *ii = cast<ICmpInst>(ci);
 
+    std::string TmpStr;
+    llvm::raw_string_ostream osm(TmpStr);
+    osm << "cmp : "; ii->print(osm);
+    osm << "target->dest : " << ki->dest;
+  
     switch(ii->getPredicate()) {
     case ICmpInst::ICMP_EQ: {
       ref<Expr> left = eval(ki, 0, state).value;
       ref<Expr> right = eval(ki, 1, state).value;
       ref<Expr> result = EqExpr::create(left, right);
       bindLocal(ki, state, result);
+      osm << "left : "; left->print(osm);
+      osm << "right : "; right->print(osm);
+      osm << "result : "; result->print(osm);
+      klee_warning("%s:%d] %s", __func__, __LINE__, osm.str().c_str());
       break;
     }
 
@@ -2727,6 +2751,10 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
       ref<Expr> right = eval(ki, 1, state).value;
       ref<Expr> result = SltExpr::create(left, right);
       bindLocal(ki, state, result);
+      osm << "left : "; left->print(osm);
+      osm << "right : "; right->print(osm);
+      osm << "result : "; result->print(osm);
+      klee_warning("%s:%d] %s", __func__, __LINE__, osm.str().c_str());
       break;
     }
 
@@ -2741,6 +2769,9 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
     default:
       terminateStateOnExecError(state, "invalid ICmp predicate");
     }
+
+
+
     break;
   }
  
@@ -4093,6 +4124,13 @@ void Executor::executeAlloc(ExecutionState &state,
       } else {
         os->initializeToRandom();
       }
+
+      std::string TmpStr;
+      llvm::raw_string_ostream osm(TmpStr);
+      osm << "bind local at " << target->dest;
+      osm << "address at " << mo->address << " expr : " << mo->getBaseExpr();
+      klee_warning("exeA:%s:%d] %s", __func__, __LINE__, osm.str().c_str());
+      //klee_warning("exeA] addr %llx %s", mo->address, mo->getBaseExpr());
       bindLocal(target, state, mo->getBaseExpr());
       
       if (reallocFrom) {
@@ -4309,6 +4347,20 @@ void Executor::executeMemoryOperation(ExecutionState &state,
     ref<Expr> offset = mo->getOffsetExpr(address);
     ref<Expr> check = mo->getBoundsCheckOffset(offset, bytes);
     check = optimizer.optimizeExpr(check, true);
+
+    std::string TmpStr;
+    llvm::raw_string_ostream osm(TmpStr);
+    osm << (!isWrite ? "LOAD]" : "STORE]");
+    osm << "offset : "; offset->print(osm);
+    osm << " check : "; check->print(osm);
+    if (value) {
+      osm << " value : "; value->print(osm);
+    }
+    if (target) {
+      osm << " Inst : "; target->inst->print(osm);
+    }
+
+    klee_warning("exeM:%s:%d] %s", __func__, __LINE__, osm.str().c_str());
 
     bool inBounds;
     solver->setTimeout(coreSolverTimeout);

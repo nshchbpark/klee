@@ -22,6 +22,7 @@
 #include "klee/Support/ErrorHandling.h"
 
 #include "llvm/Support/CommandLine.h"
+#include "klee/Support/Debug.h"
 
 #include <memory>
 #include <utility>
@@ -280,21 +281,36 @@ bool CexCachingSolver::computeValidity(const Query& query,
   Assignment *a;
   if (!getAssignment(query.withFalse(), a))
     return false;
+
+  klee_warning("Cex:%s:%d]", __func__, __LINE__);
+  query.dump();
+  query.withFalse().dump();
+
   assert(a && "computeValidity() must have assignment");
   ref<Expr> q = a->evaluate(query.expr);
+  klee_warning("Cex:%s:%d] Q: ", __func__, __LINE__);
+  q->dump();
   assert(isa<ConstantExpr>(q) && 
          "assignment evaluation did not result in constant");
 
   if (cast<ConstantExpr>(q)->isTrue()) {
-    if (!getAssignment(query, a))
+    klee_warning("Cex:%s:%d]", __func__, __LINE__);
+    query.dump();
+    if (!getAssignment(query, a)) {
+      klee_warning("Cex:%s:%d]", __func__, __LINE__);
       return false;
+    }
     result = !a ? Solver::True : Solver::Unknown;
   } else {
-    if (!getAssignment(query.negateExpr(), a))
+    klee_warning("Cex:%s:%d]", __func__, __LINE__);
+    query.negateExpr().dump();
+    if (!getAssignment(query.negateExpr(), a)) {
+      klee_warning("Cex:%s:%d]", __func__, __LINE__);
       return false;
+    }
     result = !a ? Solver::False : Solver::Unknown;
   }
-  
+
   return true;
 }
 
